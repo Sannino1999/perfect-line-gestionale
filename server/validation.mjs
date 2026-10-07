@@ -14,11 +14,18 @@ export const memberSchema=z.object({
   planId:z.string().uuid()
 });
 export const paymentSchema=z.object({
-  memberId:z.string().uuid(),
-  membershipId:z.string().uuid().optional().or(z.literal('')),
+  memberId:z.string().uuid(),membershipId:z.string().uuid().optional().or(z.literal('')),
   amount:z.coerce.number().positive().max(100000),
   status:z.enum(['PAID','PARTIAL','UNPAID']).default('PAID'),
   method:z.enum(['CASH','CARD','BANK_TRANSFER','OTHER']).default('OTHER'),
   dueDate:dateString.optional().or(z.literal('')),
   note:z.string().trim().max(500).optional().or(z.literal(''))
+});
+export const renewalSchema=z.object({
+  planId:z.string().uuid(),
+  startDate:dateString.optional().or(z.literal('')),
+  paymentAmount:z.coerce.number().positive().max(100000).optional(),
+  paymentStatus:z.enum(['PAID','PARTIAL','UNPAID']).default('PAID'),
+  paymentMethod:z.enum(['CASH','CARD','BANK_TRANSFER','OTHER']).default('OTHER'),
+  paymentNote:z.string().trim().max(500).optional().or(z.literal(''))
 });
