@@ -1,0 +1,66 @@
+import 'dotenv/config';
+import express from 'express';
+import cookieParser from 'cookie-parser';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {query,execute,transaction} from './db.mjs';
+import {hashPassword,verifyPassword,createSession,setSessionCookie,clearSessionCookie,requireSession} from './auth.mjs';
+import {loginSchema,memberSchema,paymentSchema} from './validation.mjs';
+
+const app=express();
+app.disable('x-powered-by');
+app.use(express.json({limit:'1mb'}));
+app.use(cookieParser());
+
+const loginAttempts=new Map();
+function sameOrigin(req){
+  if(!['POST','PUT','PATCH','DELETE'].includes(req.method))return true;
+  const origin=req.get('origin');
+  if(!origin)return true;
+  const expected=process.env.APP_URL?.replace(/\/$/,'');
+  return expected ? origin===expected : true;
+}
+app.use('/api',(req,res,next)=>sameOrigin(req)?next():res.status(403).json({error:'BAD_ORIGIN'}));
+
+function rateLimitLogin(req){
+  const key=req.ip||'unknown',now=Date.now(),item=loginAttempts.get(key)||{count:0,reset:now+15*60*1000};
+  if(now>item.reset){item.count=0;item.reset=now+15*60*1000}
+  item.count++;loginAttempts.set(key,item);
+  return item.count<=10;
+}
+function safeStatus(endDate){
+  const end=new Date(endDate);
+  const now=new Date();
+  const limit=new Date(now);limit.setDate(limit.getDate()+7);
+  if(end<new Date(now.getFullYear(),now.getMonth(),now.getDate()))return 'EXPIRED';
+  if(end<=limit)return 'EXPIRING';
+  return 'ACTIVE';
+}
+function audit(req,action,type,id,metadata={}){return execute('INSERT INTO audit_logs(tenant_id,user_id,action,entity_type,entity_id,metadata_json) VALUES(?,?,?,?,?,?)',[req.session.tenant_id,req.session.user_id,action,type,id,JSON.stringify(metadata)])}
+
+app.post('/api/auth/login',async(req,res)=>{try{if(!rateLimitLogin(req))return res.status(429).json({error:'TOO_MANY_ATTEMPTS'});const parsed=loginSchema.safeParse(req.body);if(!parsed.success)return res.status(400).json({error:'INVALID_INPUT'});const email=parsed.data.email.toLowerCase();const rows=await query('SELECT id,tenant_id,email,password_hash,role FROM users WHERE email=? AND active=1 LIMIT 1',[email]);const u=rows[0];if(!u||!(await verifyPassword(parsed.data.password,u.password_hash)))return res.status(401).json({error:'INVALID_CREDENTIALS'});const s=await createSession(u.id,u.tenant_id);setSessionCookie(res,s.token);res.json({user:{email:u.email,role:u.role}})}catch(e){console.error(e);res.status(500).json({error:'SERVER_ERROR'})}});
+app.post('/api/auth/logout',async(req,res)=>{try{const token=req.cookies?.pl_session;if(token)await execute('DELETE FROM sessions WHERE token_hash=SHA2(?,256)',[token]);clearSessionCookie(res);res.json({ok:true})}catch(e){res.status(500).json({error:'SERVER_ERROR'})}});
+app.get('/api/auth/me',requireSession,async(req,res)=>res.json({user:{email:req.session.email,role:req.session.role},tenant:{name:req.session.tenant_name,slug:req.session.tenant_slug}}));
+
+app.get('/api/dashboard',requireSession,async(req,res)=>{const t=req.session.tenant_id;const [a,b,c,d]=await Promise.all([query('SELECT COUNT(*) count FROM members WHERE tenant_id=? AND active=1',[t]),query("SELECT COUNT(*) count FROM memberships WHERE tenant_id=? AND end_date>=UTC_DATE() AND end_date<=DATE_ADD(UTC_DATE(),INTERVAL 7 DAY) AND status<>'SUSPENDED'",[t]),query("SELECT COUNT(*) count FROM memberships WHERE tenant_id=? AND end_date<UTC_DATE() AND status<>'SUSPENDED'",[t]),query("SELECT COALESCE(SUM(amount_cents),0) total FROM payments WHERE tenant_id=? AND status='PAID' AND paid_at>=DATE_FORMAT(UTC_TIMESTAMP(),'%Y-%m-01')",[t])]);res.json({activeMembers:Number(a[0].count),expiringSoon:Number(b[0].count),expired:Number(c[0].count),revenueMonthCents:Number(d[0].total)})});
+
+app.get('/api/members',requireSession,async(req,res)=>{const t=req.session.tenant_id,q=String(req.query.q||'').trim(),like=`%${q}%`;const rows=await query(`SELECT m.id,m.first_name,m.last_name,m.phone,m.email,m.address,m.tax_code,m.birth_date,mp.name plan_name,ms.id membership_id,ms.start_date,ms.end_date,ms.price_cents,COALESCE((SELECT SUM(p.amount_cents) FROM payments p WHERE p.membership_id=ms.id AND p.status IN ('PAID','PARTIAL')),0) paid_cents,CASE WHEN ms.end_date<UTC_DATE() THEN 'EXPIRED' WHEN ms.end_date<=DATE_ADD(UTC_DATE(),INTERVAL 7 DAY) THEN 'EXPIRING' ELSE 'ACTIVE' END membership_status FROM members m LEFT JOIN memberships ms ON ms.id=(SELECT m2.id FROM memberships m2 WHERE m2.member_id=m.id AND m2.tenant_id=? ORDER BY m2.end_date DESC LIMIT 1) LEFT JOIN membership_plans mp ON mp.id=ms.plan_id WHERE m.tenant_id=? AND m.active=1 AND (m.first_name LIKE ? OR m.last_name LIKE ? OR m.phone LIKE ? OR m.email LIKE ? OR m.tax_code LIKE ?) ORDER BY m.last_name,m.first_name LIMIT 200`,[t,t,like,like,like,like,like]);res.json(rows)});
+
+app.get('/api/members/:id',requireSession,async(req,res)=>{const rows=await query('SELECT * FROM members WHERE id=? AND tenant_id=? AND active=1 LIMIT 1',[req.params.id,req.session.tenant_id]);if(!rows[0])return res.status(404).json({error:'NOT_FOUND'});const memberships=await query('SELECT ms.*,mp.name plan_name FROM memberships ms JOIN membership_plans mp ON mp.id=ms.plan_id WHERE ms.member_id=? AND ms.tenant_id=? ORDER BY ms.end_date DESC',[req.params.id,req.session.tenant_id]);const payments=await query('SELECT id,amount_cents,status,method,paid_at,due_date,note FROM payments WHERE member_id=? AND tenant_id=? ORDER BY created_at DESC',[req.params.id,req.session.tenant_id]);res.json({member:rows[0],memberships,payments})});
+
+app.post('/api/members',requireSession,async(req,res)=>{try{const parsed=memberSchema.safeParse(req.body);if(!parsed.success)return res.status(400).json({error:'INVALID_INPUT',details:parsed.error.flatten()});const b=parsed.data;const result=await transaction(async c=>{const [plans]=await c.execute('SELECT id,duration_days,price_cents FROM membership_plans WHERE tenant_id=? AND id=? AND active=1 LIMIT 1',[req.session.tenant_id,b.planId]);if(!plans[0])throw Object.assign(new Error(),{code:'PLAN_NOT_FOUND'});const memberId=crypto.randomUUID(),membershipId=crypto.randomUUID();const start=b.startDate?new Date(b.startDate):new Date();const end=new Date(start);end.setDate(end.getDate()+Number(plans[0].duration_days));await c.execute('INSERT INTO members(id,tenant_id,first_name,last_name,birth_date,email,phone,address,tax_code,notes) VALUES(?,?,?,?,?,?,?,?,?,?)',[memberId,req.session.tenant_id,b.firstName,b.lastName,b.birthDate||null,b.email||null,b.phone||null,b.address||null,b.taxCode||null,b.notes||null]);await c.execute('INSERT INTO memberships(id,tenant_id,member_id,plan_id,start_date,end_date,status,price_cents) VALUES(?,?,?,?,?,?,?,?)',[membershipId,req.session.tenant_id,memberId,b.planId,start,end,'ACTIVE',plans[0].price_cents]);await c.execute('INSERT INTO audit_logs(tenant_id,user_id,action,entity_type,entity_id,metadata_json) VALUES(?,?,?,?,?,?)',[req.session.tenant_id,req.session.user_id,'CREATE','MEMBER',memberId,JSON.stringify({membershipId,planId:b.planId})]);return{memberId,membershipId}});res.status(201).json(result)}catch(e){if(e.code==='PLAN_NOT_FOUND')return res.status(400).json({error:e.code});console.error(e);res.status(500).json({error:'SERVER_ERROR'})}});
+app.patch('/api/members/:id',requireSession,async(req,res)=>{try{const parsed=memberSchema.partial().omit({planId:true}).safeParse(req.body);if(!parsed.success)return res.status(400).json({error:'INVALID_INPUT'});const b=parsed.data;if(!Object.keys(b).length)return res.status(400).json({error:'EMPTY_UPDATE'});const fields=[],vals=[];for(const [k,v] of Object.entries({first_name:b.firstName,last_name:b.lastName,birth_date:b.birthDate||null,email:b.email||null,phone:b.phone||null,address:b.address||null,tax_code:b.taxCode||null,notes:b.notes||null}))if(v!==undefined){fields.push(k+'=?');vals.push(v)}vals.push(req.params.id,req.session.tenant_id);const r=await execute('UPDATE members SET '+fields.join(',')+' WHERE id=? AND tenant_id=? AND active=1',vals);if(!r.affectedRows)return res.status(404).json({error:'NOT_FOUND'});await audit(req,'UPDATE','MEMBER',req.params.id,{fields:Object.keys(b)});res.json({ok:true})}catch(e){console.error(e);res.status(500).json({error:'SERVER_ERROR'})}});
+
+app.get('/api/plans',requireSession,async(req,res)=>res.json(await query('SELECT id,name,duration_days,price_cents,active FROM membership_plans WHERE tenant_id=? ORDER BY active DESC,name',[req.session.tenant_id])));
+app.post('/api/plans',requireSession,async(req,res)=>{try{const name=String(req.body?.name||'').trim();const duration=Number(req.body?.durationDays),price=Math.round(Number(req.body?.price)*100);if(!name||!Number.isInteger(duration)||duration<=0||!Number.isInteger(price)||price<0)return res.status(400).json({error:'INVALID_INPUT'});const id=crypto.randomUUID();await execute('INSERT INTO membership_plans(id,tenant_id,name,duration_days,price_cents) VALUES(?,?,?,?,?)',[id,req.session.tenant_id,name,duration,price]);await audit(req,'CREATE','PLAN',id,{name,durationDays:duration});res.status(201).json({id})}catch(e){if(e.code==='ER_DUP_ENTRY')return res.status(409).json({error:'DUPLICATE_PLAN'});console.error(e);res.status(500).json({error:'SERVER_ERROR'})}});
+app.patch('/api/plans/:id',requireSession,async(req,res)=>{const fields=[],vals=[];if(req.body?.name!==undefined){fields.push('name=?');vals.push(String(req.body.name).trim())}if(req.body?.durationDays!==undefined){fields.push('duration_days=?');vals.push(Number(req.body.durationDays))}if(req.body?.price!==undefined){fields.push('price_cents=?');vals.push(Math.round(Number(req.body.price)*100))}if(req.body?.active!==undefined){fields.push('active=?');vals.push(Boolean(req.body.active)?1:0)}if(!fields.length)return res.status(400).json({error:'EMPTY_UPDATE'});vals.push(req.params.id,req.session.tenant_id);const r=await execute('UPDATE membership_plans SET '+fields.join(',')+' WHERE id=? AND tenant_id=?',vals);if(!r.affectedRows)return res.status(404).json({error:'NOT_FOUND'});await audit(req,'UPDATE','PLAN',req.params.id,{fields});res.json({ok:true})});
+
+app.get('/api/expirations',requireSession,async(req,res)=>res.json(await query(`SELECT ms.id,m.id member_id,m.first_name,m.last_name,mp.name plan_name,ms.end_date,ms.price_cents,CASE WHEN ms.end_date<UTC_DATE() THEN 'EXPIRED' WHEN ms.end_date<=DATE_ADD(UTC_DATE(),INTERVAL 7 DAY) THEN 'EXPIRING' ELSE 'ACTIVE' END status,COALESCE((SELECT SUM(p.amount_cents) FROM payments p WHERE p.membership_id=ms.id AND p.status IN ('PAID','PARTIAL')),0) paid_cents FROM memberships ms JOIN members m ON m.id=ms.member_id JOIN membership_plans mp ON mp.id=ms.plan_id WHERE ms.tenant_id=? AND ms.end_date<=DATE_ADD(UTC_DATE(),INTERVAL 30 DAY) ORDER BY ms.end_date ASC LIMIT 200`,[req.session.tenant_id])));
+
+app.get('/api/payments',requireSession,async(req,res)=>res.json(await query(`SELECT p.id,p.member_id,p.membership_id,p.amount_cents,p.status,p.method,p.paid_at,p.due_date,p.note,m.first_name,m.last_name,mp.name plan_name FROM payments p JOIN members m ON m.id=p.member_id LEFT JOIN memberships ms ON ms.id=p.membership_id LEFT JOIN membership_plans mp ON mp.id=ms.plan_id WHERE p.tenant_id=? ORDER BY COALESCE(p.paid_at,p.due_date,p.created_at) DESC LIMIT 200`,[req.session.tenant_id])));
+app.post('/api/payments',requireSession,async(req,res)=>{try{const parsed=paymentSchema.safeParse(req.body);if(!parsed.success)return res.status(400).json({error:'INVALID_INPUT'});const b=parsed.data,id=crypto.randomUUID(),amount=Math.round(b.amount*100);const check=await query('SELECT id FROM members WHERE id=? AND tenant_id=? AND active=1 LIMIT 1',[b.memberId,req.session.tenant_id]);if(!check[0])return res.status(404).json({error:'MEMBER_NOT_FOUND'});await execute('INSERT INTO payments(id,tenant_id,member_id,membership_id,amount_cents,status,method,paid_at,due_date,note) VALUES(?,?,?,?,?,?,?,?,?,?)',[id,req.session.tenant_id,b.memberId,b.membershipId||null,amount,b.status,b.method,b.status==='PAID'?new Date():null,b.dueDate||null,b.note||null]);await audit(req,'CREATE','PAYMENT',id,{amountCents:amount,status:b.status});res.status(201).json({id})}catch(e){console.error(e);res.status(500).json({error:'SERVER_ERROR'})}});
+
+const here=path.dirname(fileURLToPath(import.meta.url)),dist=path.join(here,'..','dist');if(fs.existsSync(dist))app.use(express.static(dist));app.use((req,res,next)=>{if(req.path.startsWith('/api/'))return next();if(fs.existsSync(path.join(dist,'index.html')))return res.sendFile(path.join(dist,'index.html'));res.status(404).send('Build not found')});
+const port=Number(process.env.PORT||3000);app.listen(port,()=>console.log('Perfect Line listening on '+port));
