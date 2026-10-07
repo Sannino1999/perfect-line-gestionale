@@ -8,11 +8,13 @@ import {fileURLToPath} from 'node:url';
 import {query,execute,transaction} from './db.mjs';
 import {hashPassword,verifyPassword,createSession,setSessionCookie,clearSessionCookie,requireSession} from './auth.mjs';
 import {loginSchema,memberSchema,paymentSchema} from './validation.mjs';
+import {membershipStatus} from './domain/membership-status.mjs';
 
 const app=express();
 app.disable('x-powered-by');
 app.use(express.json({limit:'1mb'}));
 app.use(cookieParser());
+app.get('/api/health',async(req,res)=>{try{await query('SELECT 1 AS ok');res.json({status:'ok'})}catch{res.status(503).json({status:'degraded'})}});
 
 const loginAttempts=new Map();
 function sameOrigin(req){
@@ -44,6 +46,10 @@ app.post('/api/auth/login',async(req,res)=>{try{if(!rateLimitLogin(req))return r
 app.post('/api/auth/logout',async(req,res)=>{try{const token=req.cookies?.pl_session;if(token)await execute('DELETE FROM sessions WHERE token_hash=SHA2(?,256)',[token]);clearSessionCookie(res);res.json({ok:true})}catch(e){res.status(500).json({error:'SERVER_ERROR'})}});
 app.get('/api/auth/me',requireSession,async(req,res)=>res.json({user:{email:req.session.email,role:req.session.role},tenant:{name:req.session.tenant_name,slug:req.session.tenant_slug}}));
 
+
+app.get('/api/settings',requireSession,async(req,res)=>{const rows=await query('SELECT id,name,slug,timezone,currency,address,phone,email,logo_url,primary_color,expiry_warning_days FROM tenants WHERE id=? LIMIT 1',[req.session.tenant_id]);if(!rows[0])return res.status(404).json({error:'TENANT_NOT_FOUND'});res.json(rows[0])});
+app.patch('/api/settings',requireSession,async(req,res)=>{const b=req.body||{},allowed={name:'name',timezone:'timezone',currency:'currency',address:'address',phone:'phone',email:'email',logoUrl:'logo_url',primaryColor:'primary_color',expiryWarningDays:'expiry_warning_days'},fields=[],vals=[];for(const [k,col] of Object.entries(allowed))if(b[k]!==undefined){fields.push(col+'=?');vals.push(String(b[k]).trim())}if(!fields.length)return res.status(400).json({error:'EMPTY_UPDATE'});vals.push(req.session.tenant_id);const r=await execute('UPDATE tenants SET '+fields.join(',')+' WHERE id=?',vals);if(!r.affectedRows)return res.status(404).json({error:'TENANT_NOT_FOUND'});await audit(req,'UPDATE','TENANT',req.session.tenant_id,{fields:Object.keys(b)});res.json({ok:true})});
+app.get('/api/audit',requireSession,async(req,res)=>res.json(await query('SELECT a.id,a.action,a.entity_type,a.entity_id,a.created_at,u.email FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id WHERE a.tenant_id=? ORDER BY a.created_at DESC LIMIT 200',[req.session.tenant_id])));
 app.get('/api/dashboard',requireSession,async(req,res)=>{const t=req.session.tenant_id;const [a,b,c,d]=await Promise.all([query('SELECT COUNT(*) count FROM members WHERE tenant_id=? AND active=1',[t]),query("SELECT COUNT(*) count FROM memberships WHERE tenant_id=? AND end_date>=UTC_DATE() AND end_date<=DATE_ADD(UTC_DATE(),INTERVAL 7 DAY) AND status<>'SUSPENDED'",[t]),query("SELECT COUNT(*) count FROM memberships WHERE tenant_id=? AND end_date<UTC_DATE() AND status<>'SUSPENDED'",[t]),query("SELECT COALESCE(SUM(amount_cents),0) total FROM payments WHERE tenant_id=? AND status='PAID' AND paid_at>=DATE_FORMAT(UTC_TIMESTAMP(),'%Y-%m-01')",[t])]);res.json({activeMembers:Number(a[0].count),expiringSoon:Number(b[0].count),expired:Number(c[0].count),revenueMonthCents:Number(d[0].total)})});
 
 app.get('/api/members',requireSession,async(req,res)=>{const t=req.session.tenant_id,q=String(req.query.q||'').trim(),like=`%${q}%`;const rows=await query(`SELECT m.id,m.first_name,m.last_name,m.phone,m.email,m.address,m.tax_code,m.birth_date,mp.name plan_name,ms.id membership_id,ms.start_date,ms.end_date,ms.price_cents,COALESCE((SELECT SUM(p.amount_cents) FROM payments p WHERE p.membership_id=ms.id AND p.status IN ('PAID','PARTIAL')),0) paid_cents,CASE WHEN ms.end_date<UTC_DATE() THEN 'EXPIRED' WHEN ms.end_date<=DATE_ADD(UTC_DATE(),INTERVAL 7 DAY) THEN 'EXPIRING' ELSE 'ACTIVE' END membership_status FROM members m LEFT JOIN memberships ms ON ms.id=(SELECT m2.id FROM memberships m2 WHERE m2.member_id=m.id AND m2.tenant_id=? ORDER BY m2.end_date DESC LIMIT 1) LEFT JOIN membership_plans mp ON mp.id=ms.plan_id WHERE m.tenant_id=? AND m.active=1 AND (m.first_name LIKE ? OR m.last_name LIKE ? OR m.phone LIKE ? OR m.email LIKE ? OR m.tax_code LIKE ?) ORDER BY m.last_name,m.first_name LIMIT 200`,[t,t,like,like,like,like,like]);res.json(rows)});
