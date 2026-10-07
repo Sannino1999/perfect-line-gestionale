@@ -1,0 +1,2 @@
+export function todayUtc(){const d=new Date();return Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate())}
+export function membershipStatus(endDate,warningDays=7,now=Date.now()){const end=new Date(String(endDate)+'T00:00:00Z').getTime();const today=new Date(now);const todayValue=Date.UTC(today.getUTCFullYear(),today.getUTCMonth(),today.getUTCDate());const warning=todayValue+warningDays*86400000;if(end<todayValue)return 'EXPIRED';if(end<=warning)return 'EXPIRING';return 'ACTIVE'}
