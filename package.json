@@ -12,7 +12,8 @@
     "start": "node server/index.mjs",
     "typecheck": "tsc --noEmit",
     "db:migrate": "node scripts/migrate-mysql.mjs",
-    "db:bootstrap": "node scripts/bootstrap-mysql.mjs"
+    "db:bootstrap": "node scripts/bootstrap-mysql.mjs",
+    "maintenance:expiry": "node scripts/expire-memberships.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
