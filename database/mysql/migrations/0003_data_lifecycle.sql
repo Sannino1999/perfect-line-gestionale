@@ -1,0 +1,2 @@
+ALTER TABLE members ADD COLUMN archived_at DATETIME(3) NULL, ADD KEY ix_members_tenant_archived(tenant_id,archived_at);
+ALTER TABLE sessions ADD COLUMN revoked_at DATETIME(3) NULL, ADD KEY ix_sessions_revoked(revoked_at);
