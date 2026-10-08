@@ -9,6 +9,8 @@ import {query,execute,transaction} from './db.mjs';
 import {hashPassword,verifyPassword,createSession,setSessionCookie,clearSessionCookie,requireSession} from './auth.mjs';
 import {loginSchema,memberSchema,paymentSchema,renewalSchema} from './validation.mjs';
 import {membershipStatus} from './domain/membership-status.mjs';
+import {migrate} from './migrate.mjs';
+import {bootstrap} from './bootstrap.mjs';
 
 const app=express();app.set('trust proxy',1);
 app.disable('x-powered-by');
