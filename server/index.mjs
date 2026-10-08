@@ -51,6 +51,13 @@ app.get('/api/auth/me',requireSession,async(req,res)=>res.json({user:{email:req.
 app.get('/api/settings',requireSession,async(req,res)=>{const rows=await query('SELECT id,name,slug,timezone,currency,address,phone,email,logo_url,primary_color,expiry_warning_days FROM tenants WHERE id=? LIMIT 1',[req.session.tenant_id]);if(!rows[0])return res.status(404).json({error:'TENANT_NOT_FOUND'});res.json(rows[0])});
 app.patch('/api/settings',requireSession,async(req,res)=>{const b=req.body||{},allowed={name:'name',timezone:'timezone',currency:'currency',address:'address',phone:'phone',email:'email',logoUrl:'logo_url',primaryColor:'primary_color',expiryWarningDays:'expiry_warning_days'},fields=[],vals=[];for(const [k,col] of Object.entries(allowed))if(b[k]!==undefined){fields.push(col+'=?');vals.push(String(b[k]).trim())}if(!fields.length)return res.status(400).json({error:'EMPTY_UPDATE'});vals.push(req.session.tenant_id);const r=await execute('UPDATE tenants SET '+fields.join(',')+' WHERE id=?',vals);if(!r.affectedRows)return res.status(404).json({error:'TENANT_NOT_FOUND'});await audit(req,'UPDATE','TENANT',req.session.tenant_id,{fields:Object.keys(b)});res.json({ok:true})});
 app.get('/api/audit',requireSession,async(req,res)=>res.json(await query('SELECT a.id,a.action,a.entity_type,a.entity_id,a.created_at,u.email FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id WHERE a.tenant_id=? ORDER BY a.created_at DESC LIMIT 200',[req.session.tenant_id])));
+app.get('/api/reports/monthly',requireSession,async(req,res)=>{const t=req.session.tenant_id;const rows=await query(`SELECT DATE_FORMAT(d.month_start,'%Y-%m') month,
+COALESCE((SELECT SUM(p.amount_cents) FROM payments p WHERE p.tenant_id=? AND p.status='PAID' AND p.paid_at>=d.month_start AND p.paid_at<DATE_ADD(d.month_start,INTERVAL 1 MONTH)),0) revenue_cents,
+COALESCE((SELECT COUNT(*) FROM members m WHERE m.tenant_id=? AND m.active=1 AND m.archived_at IS NULL AND m.created_at>=d.month_start AND m.created_at<DATE_ADD(d.month_start,INTERVAL 1 MONTH)),0) new_members
+FROM (
+  SELECT DATE_SUB(DATE_FORMAT(UTC_DATE(),'%Y-%m-01'),INTERVAL seq MONTH) month_start
+  FROM (SELECT 0 seq UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10 UNION ALL SELECT 11) months
+) d ORDER BY d.month_start ASC`,[t,t]);res.json(rows)});
 app.get('/api/dashboard',requireSession,async(req,res)=>{const t=req.session.tenant_id;try{const [counts,rev,receivable,upcoming,recent]=await Promise.all([
 query(`SELECT
 (SELECT COUNT(*) FROM members m WHERE m.tenant_id=? AND m.active=1 AND m.archived_at IS NULL) active_members,
