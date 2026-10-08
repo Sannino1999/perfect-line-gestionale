@@ -29,3 +29,5 @@ export const renewalSchema=z.object({
   paymentMethod:z.enum(['CASH','CARD','BANK_TRANSFER','OTHER']).default('OTHER'),
   paymentNote:z.string().trim().max(500).optional().or(z.literal(''))
 });
+
+export const tenantSettingsSchema=z.object({name:z.string().trim().min(2).max(160).optional(),timezone:z.string().trim().min(1).max(64).optional(),currency:z.string().trim().length(3).optional(),address:z.string().trim().max(255).optional().or(z.literal('')),phone:z.string().trim().max(40).optional().or(z.literal('')),email:z.string().trim().email().max(190).optional().or(z.literal('')),logoUrl:z.string().url().max(500).optional().or(z.literal('')),primaryColor:z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),expiryWarningDays:z.coerce.number().int().min(1).max(30).optional()});
