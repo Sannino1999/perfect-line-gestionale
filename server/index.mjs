@@ -10,7 +10,7 @@ import {hashPassword,verifyPassword,createSession,setSessionCookie,clearSessionC
 import {loginSchema,memberSchema,paymentSchema,renewalSchema} from './validation.mjs';
 import {membershipStatus} from './domain/membership-status.mjs';
 
-const app=express();
+const app=express();app.set('trust proxy',1);
 app.disable('x-powered-by');
 app.use(express.json({limit:'1mb'}));
 app.use(cookieParser());
