@@ -9,3 +9,5 @@
 7. Verify backup/restore.
 8. Enter real Perfect Line members.
 9. Tag first production release.
+10. Verify application health after deployment and run a smoke test against synthetic data.
+11. Enable real customer data only after backup/restore verification.
