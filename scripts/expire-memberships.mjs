@@ -3,7 +3,7 @@ import {query,transaction} from '../server/db.mjs';
 import {membershipStatus} from '../server/domain/membership-status.mjs';
 
 const memberships=await query(`SELECT ms.id,ms.tenant_id,ms.end_date,t.expiry_warning_days
-FROM memberships ms JOIN tenants t ON t.id=ms.tenant_id
+FROM memberships ms JOIN tenants t ON t.id=ms.tenant_id JOIN members m ON m.id=ms.member_id AND m.tenant_id=ms.tenant_id AND m.active=1 AND m.archived_at IS NULL
 WHERE ms.status<>'SUSPENDED' AND ms.end_date<=DATE_ADD(UTC_DATE(),INTERVAL 30 DAY)`);
 let updated=0,notices=0;
 await transaction(async c=>{
