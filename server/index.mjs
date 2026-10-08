@@ -11,11 +11,13 @@ import {loginSchema,memberSchema,paymentSchema,renewalSchema} from './validation
 import {membershipStatus} from './domain/membership-status.mjs';
 
 const app=express();app.set('trust proxy',1);
+let appReady=false;let initError=null;
 app.disable('x-powered-by');
 app.use(express.json({limit:'1mb'}));
 app.use(cookieParser());
 app.use((req,res,next)=>{res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');res.setHeader('Permissions-Policy','camera=(),microphone=(),geolocation=()');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'self'; frame-ancestors 'none'");if(req.path.startsWith('/api/'))res.setHeader('Cache-Control','no-store');next();});
-app.get('/api/health',async(req,res)=>{try{await query('SELECT 1 AS ok');res.json({status:'ok'})}catch{res.status(503).json({status:'degraded'})}});
+app.get('/api/health',async(req,res)=>res.json({status:'ok',application:'up',database:appReady?'up':'starting',ready:appReady,error:initError?'DATABASE_INIT_FAILED':undefined}));
+app.get('/api/readyz',async(req,res)=>appReady?res.json({status:'ready'}):res.status(503).json({status:'starting',error:initError?'DATABASE_INIT_FAILED':'DATABASE_INITIALIZING'}));
 
 const loginAttempts=new Map();
 function sameOrigin(req){
@@ -26,6 +28,7 @@ function sameOrigin(req){
   return expected ? origin===expected : true;
 }
 app.use('/api',(req,res,next)=>sameOrigin(req)?next():res.status(403).json({error:'BAD_ORIGIN'}));
+app.use('/api',(req,res,next)=>{if(req.path==='/health'||req.path==='/readyz')return next();if(!appReady)return res.status(503).json({error:'SERVICE_NOT_READY'});next()});
 
 function rateLimitLogin(req){
   const key=req.ip||'unknown',now=Date.now(),item=loginAttempts.get(key)||{count:0,reset:now+15*60*1000};
@@ -95,4 +98,6 @@ app.get('/api/payments',requireSession,async(req,res)=>res.json(await query(`SEL
 app.post('/api/payments',requireSession,async(req,res)=>{try{const parsed=paymentSchema.safeParse(req.body);if(!parsed.success)return res.status(400).json({error:'INVALID_INPUT'});const b=parsed.data,id=crypto.randomUUID(),amount=Math.round(b.amount*100);const check=await query('SELECT id FROM members WHERE id=? AND tenant_id=? AND active=1 LIMIT 1',[b.memberId,req.session.tenant_id]);if(!check[0])return res.status(404).json({error:'MEMBER_NOT_FOUND'});if(b.membershipId){const membership=await query('SELECT id FROM memberships WHERE id=? AND member_id=? AND tenant_id=? LIMIT 1',[b.membershipId,b.memberId,req.session.tenant_id]);if(!membership[0])return res.status(400).json({error:'MEMBERSHIP_NOT_FOUND'});}await execute('INSERT INTO payments(id,tenant_id,member_id,membership_id,amount_cents,status,method,paid_at,due_date,note) VALUES(?,?,?,?,?,?,?,?,?,?)',[id,req.session.tenant_id,b.memberId,b.membershipId||null,amount,b.status,b.method,b.status==='PAID'?new Date():null,b.dueDate||null,b.note||null]);await audit(req,'CREATE','PAYMENT',id,{amountCents:amount,status:b.status});res.status(201).json({id})}catch(e){console.error(e);res.status(500).json({error:'SERVER_ERROR'})}});
 
 const here=path.dirname(fileURLToPath(import.meta.url)),dist=path.join(here,'..','dist');if(fs.existsSync(dist))app.use(express.static(dist));app.use((req,res,next)=>{if(req.path.startsWith('/api/'))return next();if(fs.existsSync(path.join(dist,'index.html')))return res.sendFile(path.join(dist,'index.html'));res.status(404).send('Build not found')});
-const port=Number(process.env.PORT||3000);app.listen(port,()=>console.log('Perfect Line listening on '+port));
+const port=Number(process.env.PORT||3000);
+async function initialize(){try{await migrate();const boot=await bootstrap();console.log('bootstrap',boot.reason||'created');appReady=true;initError=null;console.log('Perfect Line ready');}catch(err){initError=err;console.error('Database initialization failed',err);}}
+app.listen(port,()=>{console.log('Perfect Line listening on '+port);initialize()});
