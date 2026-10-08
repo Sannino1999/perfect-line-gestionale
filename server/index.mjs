@@ -17,8 +17,8 @@ app.disable('x-powered-by');
 app.use(express.json({limit:'1mb'}));
 app.use(cookieParser());
 app.use((req,res,next)=>{res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');res.setHeader('Permissions-Policy','camera=(),microphone=(),geolocation=()');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'self'; frame-ancestors 'none'");if(req.path.startsWith('/api/'))res.setHeader('Cache-Control','no-store');next();});
-app.get('/api/health',async(req,res)=>res.json({status:'ok',application:'up',database:appReady?'up':'starting',ready:appReady,error:initError?'DATABASE_INIT_FAILED':undefined}));
-app.get('/api/readyz',async(req,res)=>appReady?res.json({status:'ready'}):res.status(503).json({status:'starting'}));
+app.get('/api/health',async(req,res)=>{let database='starting';if(appReady){try{await query('SELECT 1 AS ok');database='up'}catch{database='down'}}const ready=appReady&&database==='up';res.status(ready?200:503).json({status:ready?'ok':'degraded',application:'up',database,ready,error:initError?'DATABASE_INIT_FAILED':undefined})});
+app.get('/api/readyz',async(req,res)=>{if(!appReady)return res.status(503).json({status:'starting',error:initError?'DATABASE_INIT_FAILED':'DATABASE_INITIALIZING'});try{await query('SELECT 1 AS ok');res.json({status:'ready'})}catch{return res.status(503).json({status:'database_unavailable'})}});
 
 const loginAttempts=new Map();
 function sameOrigin(req){
@@ -26,7 +26,8 @@ function sameOrigin(req){
   const origin=req.get('origin');
   if(!origin)return true;
   const expected=process.env.APP_URL?.replace(/\/$/,'');
-  return expected ? origin===expected : true;
+  const requestOrigin=`${req.protocol}://${req.get('host')}`;
+  return origin===requestOrigin || (!!expected && origin===expected);
 }
 app.use('/api',(req,res,next)=>sameOrigin(req)?next():res.status(403).json({error:'BAD_ORIGIN'}));
 
