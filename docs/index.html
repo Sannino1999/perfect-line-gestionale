@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Perfect Line — Preview Gestionale</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f5f6f8;color:#17191f}
+.wrap{min-height:100vh;display:flex}.side{width:245px;background:#111318;color:#fff;padding:26px 16px}.brand{font-size:23px;font-weight:800;padding:8px 12px 28px}.brand small{display:block;color:#8d95a1;font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-top:6px}
+.nav div{padding:11px 12px;border-radius:10px;color:#b8bec8;margin:4px 0;font-weight:650}.nav .active{background:#252932;color:#fff}.privacy{margin-top:44vh;padding:12px;color:#8b929d;font-size:12px;border-top:1px solid #2a2e36}
+.main{flex:1;padding:34px;max-width:1550px}.top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px}.top h1{font-size:31px;margin:0}.top p{margin:7px 0 0;color:#717884}.btn{border:0;border-radius:10px;padding:11px 15px;background:#171a20;color:#fff;font-weight:750}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:15px}.card{background:#fff;border:1px solid #e3e6ea;border-radius:16px;padding:20px}.label{font-size:13px;color:#737a86}.metric{font-size:31px;font-weight:800;margin-top:10px}
+.grid{display:grid;grid-template-columns:1.1fr .9fr;gap:16px;margin-top:16px}.head{display:flex;justify-content:space-between;align-items:center;margin-bottom:15px}.head h2{font-size:17px;margin:0}.muted{font-size:12px;color:#89909b}
+.bars{display:grid;gap:14px}.bar{display:grid;grid-template-columns:110px 1fr 30px;gap:9px;align-items:center;font-size:13px}.track{height:9px;background:#edf0f2;border-radius:99px;overflow:hidden}.fill{height:100%;background:#242833;border-radius:99px}
+.chart{height:145px;display:flex;gap:7px;align-items:flex-end;border-bottom:1px solid #eceff2;padding:0 5px;margin-top:18px}.chart i{flex:1;background:#242833;border-radius:5px 5px 0 0}
+table{width:100%;border-collapse:collapse}th,td{padding:13px 10px;text-align:left;border-bottom:1px solid #edf0f2;font-size:13px}th{font-size:11px;text-transform:uppercase;color:#7c838f}.badge{display:inline-block;padding:5px 9px;border-radius:999px;font-size:11px;font-weight:750}.ok{background:#e8f6ed;color:#15743d}.warn{background:#fff2db;color:#966000}.bad{background:#fdebec;color:#a52b30}
+.note{margin-top:16px;color:#7b828d;font-size:12px}
+@media(max-width:900px){.side{display:none}.main{padding:20px}.kpis{grid-template-columns:1fr 1fr}.grid{grid-template-columns:1fr}}
+@media(max-width:560px){.kpis{grid-template-columns:1fr}.top{flex-direction:column;gap:12px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<aside class="side">
+  <div class="brand">Perfect Line<small>Gestionale ASD</small></div>
+  <div class="nav">
+    <div class="active">▣ &nbsp;Dashboard</div><div>◉ &nbsp;Clienti</div><div>▤ &nbsp;Abbonamenti</div><div>€ &nbsp;Pagamenti</div><div>↳ &nbsp;Insoluti</div><div>◷ &nbsp;Scadenze</div><div>⚙ &nbsp;Impostazioni</div><div>✓ &nbsp;Audit</div>
+  </div>
+  <div class="privacy">PREVIEW<br>Dati di esempio · nessun database collegato</div>
+</aside>
+<main class="main">
+  <div class="top"><div><h1>Dashboard</h1><p>ASD Perfect Line · panoramica gestionale</p></div><button class="btn">+ Nuovo iscritto</button></div>
+  <div class="kpis">
+    <div class="card"><div class="label">Iscritti attivi</div><div class="metric">248</div></div>
+    <div class="card"><div class="label">In scadenza · 7 giorni</div><div class="metric">12</div></div>
+    <div class="card"><div class="label">Da incassare</div><div class="metric">€ 540</div></div>
+    <div class="card"><div class="label">Incassato questo mese</div><div class="metric">€ 8.420</div></div>
+  </div>
+  <div class="grid">
+    <section class="card"><div class="head"><h2>Situazione abbonamenti</h2><span class="muted">ultimi 30 giorni</span></div><div class="bars">
+      <div class="bar"><span>Attivi</span><div class="track"><div class="fill" style="width:78%"></div></div><b>78%</b></div>
+      <div class="bar"><span>In scadenza</span><div class="track"><div class="fill" style="width:18%"></div></div><b>18%</b></div>
+      <div class="bar"><span>Scaduti</span><div class="track"><div class="fill" style="width:9%"></div></div><b>9%</b></div>
+      <div class="bar"><span>Sospesi</span><div class="track"><div class="fill" style="width:3%"></div></div><b>3%</b></div>
+    </div></section>
+    <section class="card"><div class="head"><h2>Incassi del mese</h2><span class="muted">ottobre 2026</span></div><div class="metric">€ 8.420</div><div class="note" style="color:#15743d;font-weight:700">+12,4% rispetto a settembre</div><div class="chart"><i style="height:32%"></i><i style="height:45%"></i><i style="height:39%"></i><i style="height:61%"></i><i style="height:54%"></i><i style="height:68%"></i><i style="height:72%"></i><i style="height:81%"></i><i style="height:76%"></i><i style="height:92%"></i><i style="height:88%"></i><i style="height:100%"></i></div></section>
+  </div>
+  <div class="grid">
+    <section class="card"><div class="head"><h2>Prossime scadenze</h2><span class="muted">7 giorni</span></div><table><thead><tr><th>Cliente</th><th>Piano</th><th>Scadenza</th><th>Stato</th></tr></thead><tbody>
+      <tr><td><b>Mario Rossi</b></td><td>Mensile</td><td>12/10/2026</td><td><span class="badge warn">In scadenza</span></td></tr>
+      <tr><td><b>Anna Esposito</b></td><td>Trimestrale</td><td>15/10/2026</td><td><span class="badge warn">In scadenza</span></td></tr>
+      <tr><td><b>Luca Romano</b></td><td>Mensile</td><td>03/10/2026</td><td><span class="badge bad">Scaduto</span></td></tr>
+      <tr><td><b>Sara Russo</b></td><td>Annuale</td><td>21/10/2026</td><td><span class="badge warn">In scadenza</span></td></tr>
+    </tbody></table></section>
+    <section class="card"><div class="head"><h2>Ultimi pagamenti</h2><span class="muted">oggi</span></div><table><thead><tr><th>Cliente</th><th>Importo</th><th>Metodo</th></tr></thead><tbody>
+      <tr><td><b>Mario Rossi</b></td><td>€ 50</td><td>Carta</td></tr>
+      <tr><td><b>Giulia Bianchi</b></td><td>€ 130</td><td>Bonifico</td></tr>
+      <tr><td><b>Sara Russo</b></td><td>€ 200</td><td>Carta</td></tr>
+      <tr><td><b>Paolo Esposito</b></td><td>€ 50</td><td>Contanti</td></tr>
+    </tbody></table></section>
+  </div>
+  <div class="note">Questa schermata è una preview grafica del gestionale. La versione reale sarà protetta da login e collegata al database MySQL di produzione.</div>
+</main>
+</div>
+</body>
+</html>
